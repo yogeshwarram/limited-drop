@@ -11,9 +11,13 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtDecoders;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.method.support.HandlerMethodArgumentResolver;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -40,6 +44,24 @@ public class SecurityConfiguration {
             throw new IllegalStateException("Configure APP_SECURITY_ISSUER_URI, APP_SECURITY_JWK_SET_URI, or a >=32 byte APP_SECURITY_HMAC_SECRET");
         }
         return NimbusJwtDecoder.withSecretKey(new SecretKeySpec(security.getHmacSecret().getBytes(StandardCharsets.UTF_8), "HmacSHA256")).build();
+    }
+
+    @Bean
+    AuthenticatedCustomerInterceptor authenticatedCustomerInterceptor() { return new AuthenticatedCustomerInterceptor(); }
+
+    @Bean
+    CurrentCustomerArgumentResolver currentCustomerArgumentResolver() { return new CurrentCustomerArgumentResolver(); }
+
+    @Bean
+    WebMvcConfigurer authenticatedCustomerMvcConfigurer(AuthenticatedCustomerInterceptor interceptor, CurrentCustomerArgumentResolver resolver) {
+        return new WebMvcConfigurer() {
+            @Override
+            public void addInterceptors(InterceptorRegistry registry) {
+                registry.addInterceptor(interceptor).addPathPatterns("/api/v1/**").excludePathPatterns("/api/v1/dev/**");
+            }
+            @Override
+            public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) { resolvers.add(resolver); }
+        };
     }
 
     private boolean hasText(String value) { return value != null && !value.isBlank(); }

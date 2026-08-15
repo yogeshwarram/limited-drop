@@ -1,7 +1,7 @@
 package com.limiteddrop.security;
 
-import com.limiteddrop.api.DropController;
-import com.limiteddrop.application.DropQueryService;
+import com.limiteddrop.controller.DropController;
+import com.limiteddrop.service.DropQueryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;

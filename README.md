@@ -50,6 +50,16 @@ To remove local volumes after the demo, run `docker-compose down -v`.
 
 The JWT `sub` claim is the customer ID. A customer cannot read or change another customer's hold. In production configure either `APP_SECURITY_ISSUER_URI` (OIDC discovery) or `APP_SECURITY_JWK_SET_URI`; never enable the development token endpoint or use the shared HMAC secret in production.
 
+JWT validation remains in Spring Security's filter chain. Once the token is validated, an MVC interceptor adapts its `sub` claim to `AuthenticatedCustomer`, and the `@CurrentCustomer` argument resolver supplies that identity to protected controllers. The interceptor deliberately does not parse or validate tokens itself, so there is one authentication authority.
+
+## Code layout
+
+- `controller` contains HTTP endpoints only.
+- `request` and `response` contain the public API contracts.
+- `service` contains application workflows, caching, and scheduled work.
+- `exception` contains domain-to-HTTP error handling.
+- `security` owns JWT verification configuration and the controller identity adapter.
+
 ## Correctness design
 
 ### Inventory invariant
