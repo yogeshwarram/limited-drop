@@ -1,0 +1,7 @@
+target/
+.m2/
+.docker-config/
+.idea/
+*.iml
+.env
+.DS_Store

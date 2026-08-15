@@ -1,0 +1,4 @@
+app:
+  security:
+    hmac-secret: ${APP_SECURITY_HMAC_SECRET:change-this-32-byte-development-secret-now}
+    dev-token-endpoint-enabled: ${APP_SECURITY_DEV_TOKEN_ENDPOINT_ENABLED:true}

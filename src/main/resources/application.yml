@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: limited-drop
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/limited_drop}
+    username: ${SPRING_DATASOURCE_USERNAME:limited_drop}
+    password: ${SPRING_DATASOURCE_PASSWORD:limited_drop}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+  cache:
+    type: redis
+    redis:
+      time-to-live: 1h
+      cache-null-values: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+app:
+  reservations:
+    default-hold-duration: PT10M
+    expiry-scan-delay: PT5S
+    expiry-batch-size: 100
+  outbox:
+    publish-delay: PT2S
+    exchange: drop.events
+  seed:
+    enabled: true
+  security:
+    issuer-uri: ${APP_SECURITY_ISSUER_URI:}
+    jwk-set-uri: ${APP_SECURITY_JWK_SET_URI:}
+    hmac-secret: ${APP_SECURITY_HMAC_SECRET:}
+    dev-token-endpoint-enabled: ${APP_SECURITY_DEV_TOKEN_ENDPOINT_ENABLED:false}

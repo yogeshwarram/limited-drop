@@ -1,0 +1,6 @@
+target/
+.m2/
+.docker-config/
+.git/
+.idea/
+*.md
