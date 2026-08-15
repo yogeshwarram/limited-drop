@@ -1,4 +1,5 @@
 target/
+coverage-target/
 .m2/
 .docker-config/
 .idea/
