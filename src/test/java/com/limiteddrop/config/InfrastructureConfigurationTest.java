@@ -22,7 +22,7 @@ class InfrastructureConfigurationTest {
         assertThat(exchange.isDurable()).isTrue();
         assertThat(queue.getName()).isEqualTo("drop.events.audit");
         assertThat(queue.isDurable()).isTrue();
-        assertThat(binding.getRoutingKey()).isEqualTo("hold.#");
+        assertThat(binding.getRoutingKey()).isEqualTo("#");
     }
 
     @Test

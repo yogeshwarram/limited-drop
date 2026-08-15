@@ -54,5 +54,5 @@ public class InfrastructureConfiguration implements CachingConfigurer {
     @Bean
     Queue auditQueue() { return new Queue("drop.events.audit", true); }
     @Bean
-    Binding auditBinding(Queue auditQueue, TopicExchange dropEventsExchange) { return BindingBuilder.bind(auditQueue).to(dropEventsExchange).with("hold.#"); }
+    Binding auditBinding(Queue auditQueue, TopicExchange dropEventsExchange) { return BindingBuilder.bind(auditQueue).to(dropEventsExchange).with("#"); }
 }

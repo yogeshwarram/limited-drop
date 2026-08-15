@@ -17,6 +17,7 @@ public class DevTokenController {
     public DevTokenController(DemoTokenService tokens) { this.tokens = tokens; }
     @PostMapping
     public ResponseEntity<DevTokenResponse> issue(@Valid @RequestBody DevTokenRequest request) {
-        return ResponseEntity.ok(new DevTokenResponse(tokens.issue(request.customerId()), "Bearer", 3600));
+        String token = request.scopes() == null || request.scopes().isEmpty() ? tokens.issue(request.customerId()) : tokens.issue(request.customerId(), request.scopes());
+        return ResponseEntity.ok(new DevTokenResponse(token, "Bearer", 3600));
     }
 }

@@ -9,15 +9,19 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Date;
+import java.util.List;
 
 @Service
 public class DemoTokenService {
     private final ReservationProperties properties;
     private final Clock clock;
     public DemoTokenService(ReservationProperties properties, Clock clock) { this.properties = properties; this.clock = clock; }
-    public String issue(String subject) {
+    public String issue(String subject) { return issue(subject, List.of()); }
+    public String issue(String subject, List<String> scopes) {
         Instant now = clock.instant();
-        return Jwts.builder().subject(subject).issuedAt(Date.from(now)).expiration(Date.from(now.plusSeconds(3600)))
+        var builder = Jwts.builder().subject(subject).issuedAt(Date.from(now)).expiration(Date.from(now.plusSeconds(3600)));
+        if (scopes != null && !scopes.isEmpty()) builder.claim("scope", String.join(" ", scopes));
+        return builder
                 .signWith(Keys.hmacShaKeyFor(properties.getSecurity().getHmacSecret().getBytes(StandardCharsets.UTF_8))).compact();
     }
 }

@@ -9,6 +9,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import com.limiteddrop.security.DemoTokenService;
 import com.limiteddrop.service.DropQueryService;
 import com.limiteddrop.service.HoldService;
+import com.limiteddrop.service.AdminDropService;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -30,6 +31,7 @@ class SecurityFilterChainEnabledWebTest {
     @MockBean DemoTokenService tokens;
     @MockBean DropQueryService drops;
     @MockBean HoldService holds;
+    @MockBean AdminDropService adminDrops;
 
     @Test
     void allowsDevelopmentTokenEndpointWhenEnabled() throws Exception {

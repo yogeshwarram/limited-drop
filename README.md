@@ -19,6 +19,11 @@ TOKEN=$(curl -sS -X POST http://localhost:8080/api/v1/dev/tokens \
   -H 'Content-Type: application/json' \
   -d '{"customerId":"alice"}' | jq -r .accessToken)
 
+# Development-only admin token (production tokens must come from the configured issuer)
+ADMIN_TOKEN=$(curl -sS -X POST http://localhost:8080/api/v1/dev/tokens \
+  -H 'Content-Type: application/json' \
+  -d '{"customerId":"operator","scopes":["drops:manage"]}' | jq -r .accessToken)
+
 curl -sS http://localhost:8080/api/v1/drops \
   -H "Authorization: Bearer $TOKEN"
 
@@ -49,6 +54,26 @@ To remove local volumes after the demo, run `docker-compose down -v`.
 | `DELETE` | `/api/v1/holds/{holdId}` | Cancel an active hold |
 
 The JWT `sub` claim is the customer ID. A customer cannot read or change another customer's hold. In production configure either `APP_SECURITY_ISSUER_URI` (OIDC discovery) or `APP_SECURITY_JWK_SET_URI`; never enable the development token endpoint or use the shared HMAC secret in production.
+
+## Admin drop management
+
+Admin endpoints require a validated JWT with the `drops:manage` OAuth2 scope (Spring Security exposes it as `SCOPE_drops:manage`). Every admin POST requires an `Idempotency-Key`.
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/admin/drops \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Idempotency-Key: create-concert-001' \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Saturday Concert","totalUnits":100,"opensAt":"2026-08-20T18:00:00Z","holdDurationSeconds":600}'
+
+curl -sS -X POST http://localhost:8080/api/v1/admin/drops/<DROP_ID>/capacity-adjustments \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Idempotency-Key: capacity-concert-001' \
+  -H 'Content-Type: application/json' \
+  -d '{"quantity":20,"reason":"Additional allocation released by venue"}'
+```
+
+Bulk creation and capacity adjustments accept at most 100 items and are all-or-nothing. Capacity adjustments are additive: they increase both `totalUnits` and `availableUnits`; direct inventory replacement and reductions are intentionally unsupported. Per-drop admin history is available at `GET /api/v1/admin/drops/{dropId}/audit`.
 
 JWT validation remains in Spring Security's filter chain. Once the token is validated, an MVC interceptor adapts its `sub` claim to `AuthenticatedCustomer`, and the `@CurrentCustomer` argument resolver supplies that identity to protected controllers. The interceptor deliberately does not parse or validate tokens itself, so there is one authentication authority.
 

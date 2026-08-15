@@ -29,4 +29,5 @@ public class Drop {
     public int getAvailableUnits() { return availableUnits; }
     public Instant getOpensAt() { return opensAt; }
     public Integer getHoldDurationSeconds() { return holdDurationSeconds; }
+    public void addCapacity(int quantity) { this.totalUnits += quantity; this.availableUnits += quantity; }
 }

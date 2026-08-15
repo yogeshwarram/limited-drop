@@ -26,10 +26,10 @@ public class OutboxService {
         payload.put("quantity", hold.getQuantity());
         payload.put("state", hold.getState().name());
         payload.put("occurredAt", occurredAt.toString());
-        try {
-            repository.save(new OutboxEvent((String) payload.get("eventId"), hold.getId(), eventType, objectMapper.writeValueAsString(payload), occurredAt));
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Cannot serialize domain event", e);
-        }
+        record(eventType, hold.getId(), payload, occurredAt);
+    }
+    public void record(String eventType, String aggregateId, Map<String, Object> payload, Instant occurredAt) {
+        try { repository.save(new OutboxEvent((String) payload.computeIfAbsent("eventId", ignored -> UUID.randomUUID().toString()), aggregateId, eventType, objectMapper.writeValueAsString(payload), occurredAt)); }
+        catch (JsonProcessingException e) { throw new IllegalStateException("Cannot serialize domain event", e); }
     }
 }

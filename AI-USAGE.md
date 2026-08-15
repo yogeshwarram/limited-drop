@@ -28,6 +28,12 @@ I used workspace inspection to establish that this was an empty repository and c
 
 5. **Rejected: caching the live availability response.** Even short TTLs can misrepresent a scarce drop and, worse, tempt the system to use stale data for admission. Static catalog metadata is a safe cache target; the atomic MySQL update remains the only availability decision.
 
+6. **Accepted: scope-protected additive admin capacity operations.** The user approved standard `drops:manage` OAuth2 scopes, all-or-nothing batches, required admin idempotency keys, and additive capacity only. This keeps operator workflows useful without permitting arbitrary writes to the inventory counter.
+
+7. **Accepted: database audit plus outbox event for admin writes.** Admin changes retain actor, reason, and before/after values locally while also using the existing at-least-once event pipeline. This supports both operator investigation and downstream consumers without coupling the request to RabbitMQ availability.
+
+8. **Rejected: direct absolute replacement of available units.** It is convenient for an admin UI but cannot distinguish active holds from sellable stock; additive total/available updates preserve the same invariant as reservation and expiry.
+
 ## How I checked the result
 
 - I traced each transition against the invariant: create subtracts once; confirm subtracts zero; cancel and expiry add once; terminal states cannot transition again.
@@ -37,3 +43,4 @@ I used workspace inspection to establish that this was an empty repository and c
 - `mvn test` passed with five tests, including the 20-way concurrent conditional-update test. The local IDE runtime is Java 25, so its test fork needed Byte Buddy's experimental-version flag; the project itself targets Java 21.
 - The Dockerfile built successfully and the Compose stack reached healthy status for MySQL, Redis, RabbitMQ, and the application. I issued a development JWT, created and confirmed a one-unit hold, and observed live availability move `11 -> 10 -> 10`, proving confirmation did not decrement stock twice.
 - I checked RabbitMQ's durable audit queue through its local management API after the flow; it contained the published hold events. This also found two production-only issues (a Flyway/JPA identifier-column mismatch and Redis cache type-erasure), both of which were fixed with a forward-only migration and a typed-safe cache serializer before repeating the successful flow.
+- For admin management, focused tests prove ordinary JWTs receive `403`, `drops:manage` succeeds, idempotent create replay does not write twice, duplicate/unknown bulk targets fail, and capacity updates change total and available units together. The full Java 21 suite and a live Compose admin smoke flow are the final checks for this extension.

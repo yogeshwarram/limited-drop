@@ -30,6 +30,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/api/v1/dev/tokens").access((authentication, context) ->
                                 new org.springframework.security.authorization.AuthorizationDecision(properties.getSecurity().isDevTokenEndpointEnabled()))
+                        .requestMatchers("/api/v1/admin/**").hasAuthority("SCOPE_drops:manage")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()))
                 .build();
