@@ -7,10 +7,10 @@ A Spring Boot 3 / Java 21 backend for contention-heavy, limited inventory drops.
 The only prerequisite is Docker with Compose:
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
-The API is at `http://localhost:8080`. RabbitMQ's management UI is at `http://localhost:15672` (guest/guest). The compose profile uses development JWT signing solely to make the demo self-contained.
+HAProxy exposes the two application replicas at `http://localhost:8080`. RabbitMQ's management UI is at `http://localhost:15672` (guest/guest). The compose profile uses development JWT signing solely to make the demo self-contained.
 
 Get a development token, inspect seed data, then make a hold:
 
@@ -38,9 +38,9 @@ curl -sS -X POST http://localhost:8080/api/v1/holds/<HOLD_ID>/confirm \
   -H 'Idempotency-Key: e4fec5c0-9f31-42e7-a291-d698d5517b91'
 ```
 
-Cancel an active hold with `DELETE /api/v1/holds/{holdId}`. Health is available without authentication at `/actuator/health`.
+Cancel an active hold with `DELETE /api/v1/holds/{holdId}`. Liveness and MySQL-backed readiness are available without authentication at `/actuator/health/liveness` and `/actuator/health/readiness`.
 
-To remove local volumes after the demo, run `docker-compose down -v`.
+To remove local volumes after the demo, run `docker compose down -v`.
 
 ## API
 
@@ -112,6 +112,8 @@ Confirming a hold only changes `ACTIVE -> CONFIRMED`; it never decrements invent
 
 The create idempotency key is unique per `(drop, customer, key)`. A replay with the same quantity returns the original hold; a changed quantity returns `409`. The confirmation endpoint also requires an idempotency key, while confirmation itself is state-idempotent: retrying after success returns the confirmed hold.
 
+If a mutation loses its HTTP connection, the client must retry with the same idempotency key rather than inventing a new command. HAProxy retries only `GET`, `HEAD`, and `OPTIONS`; it never retries mutations because a disconnected request may already have committed. Cancellation has no separate key but is state-idempotent: replaying a completed cancellation returns the cancelled hold without returning inventory twice.
+
 ### Holds and expiry
 
 The default hold period is `PT10M`, configurable with `APP_RESERVATIONS_DEFAULT_HOLD_DURATION`. A drop may override this at creation/seed time. Each hold stores its actual expiry timestamp, so changing configuration does not alter existing promises.
@@ -128,6 +130,14 @@ Each committed hold state change writes an `outbox_events` row in the same trans
 
 Routing keys are `hold.created`, `hold.confirmed`, `hold.cancelled`, and `hold.expired`. The optional durable `drop.events.audit` queue binds all events when `APP_OUTBOX_AUDIT_QUEUE_ENABLED=true`; it is disabled by default because an unconsumed durable queue grows without bound under load.
 
+### Dependency and replica failures
+
+MySQL remains required for every authoritative inventory decision. The Hikari pool and MySQL driver use bounded acquisition, connection, validation, and socket timeouts; connectivity failures return `503 DATABASE_UNAVAILABLE` with `Retry-After: 1` instead of occupying a request thread for the default 30 seconds. The service does not retry inventory transactions internally because a connection loss near commit is ambiguous and must be resolved through the existing idempotency contract.
+
+Redis and RabbitMQ are intentionally excluded from readiness. A Redis command times out quickly and falls back to MySQL, while a RabbitMQ outage only delays outbox publication. `/actuator/health/readiness` contains application readiness plus MySQL; `/actuator/health/liveness` contains process state only. The aggregate `/actuator/health` remains useful for diagnosing all configured dependencies and may report `DOWN` while the API is deliberately serving in a degraded mode.
+
+Compose runs `app1` and `app2` behind HAProxy using least-connections balancing. Read requests receive bounded connection/empty-response retries. Spring's 20-second graceful shutdown and the container's 25-second stop allowance drain controlled removals. An abrupt kill can still reset an in-flight mutation; replay it with the same key after another replica is selected.
+
 ## Configuration
 
 All connection details are environment configurable:
@@ -137,6 +147,13 @@ All connection details are environment configurable:
 | `SPRING_DATASOURCE_URL` | `jdbc:mysql://localhost:3306/limited_drop` |
 | `SPRING_DATA_REDIS_HOST` | `localhost` |
 | `SPRING_RABBITMQ_HOST` | `localhost` |
+| `DB_POOL_MAX_SIZE` / `DB_POOL_MIN_IDLE` | `20` / `5` |
+| `DB_CONNECTION_TIMEOUT_MS` / `DB_VALIDATION_TIMEOUT_MS` | `2000` / `1000` |
+| `MYSQL_CONNECT_TIMEOUT_MS` / `MYSQL_SOCKET_TIMEOUT_MS` | `1000` / `3000` |
+| `SERVER_MAX_THREADS` / `SERVER_ACCEPT_COUNT` | `50` / `100` |
+| `REDIS_CONNECT_TIMEOUT` / `REDIS_COMMAND_TIMEOUT` | `500ms` / `250ms` |
+| `RABBITMQ_CONNECTION_TIMEOUT` | `1s` |
+| `SHUTDOWN_TIMEOUT` | `20s` |
 | `APP_OUTBOX_BATCH_SIZE` | `1000` |
 | `APP_OUTBOX_PUBLISH_DELAY` | `PT0.25S` |
 | `APP_OUTBOX_CONFIRM_TIMEOUT` | `PT5S` |
@@ -161,10 +178,13 @@ mvn test
 
 No test needs MySQL, Redis, or RabbitMQ. Mockito tests cover service state transitions, idempotency replay, and exact inventory release. An embedded H2 MySQL-mode test launches 20 concurrent conditional reservations against five units and proves exactly five succeed.
 
+For failure testing, use `docker compose stop app2` for a graceful drain and `docker compose kill -s KILL app2` for an abrupt failure. Observe `hikaricp.connections.active`, `hikaricp.connections.pending`, `http.server.requests`, HAProxy backend logs, RabbitMQ queue depth, and the age/count of unpublished `outbox_events`. Acceptance requires unchanged inventory invariants after every recovery; MySQL-wide failure is expected to produce bounded `503`s rather than successful reservations.
+
 ## Trade-offs and next work
 
 - MySQL availability is intentionally strongly consistent. At very high write contention, a single popular drop becomes a hot row. This is the correct baseline; the next scaling step would be a carefully proven allocation/sharding strategy, not a cache-based counter.
 - Outbox publishers claim configurable batches with expiring leases, allowing replicas to divide work without holding database locks during broker I/O. Timeouts can still produce duplicates when a late confirmation arrives after a lease is released, which is why consumers must de-duplicate by event ID.
 - Outbox delivery is at-least-once. Exactly-once delivery is not realistic across a database and broker without consumer idempotency; event IDs make consumer deduplication practical.
 - Inventory display is a current MySQL read. This favors correctness and transparency over catalog-read throughput. A separately labeled, short-lived availability projection could be added for read-heavy browsing, but it must never decide admissions.
+- Application-side timeouts cannot make reservations available while MySQL is down. Higher availability requires MySQL replication and a tested failover endpoint while retaining the same transactional inventory guard.
 - Production would add authorization scopes, request tracing propagated into events, rate limiting at the edge, metrics/alerts for expired-outbox age and inventory anomalies, and MySQL/RabbitMQ integration smoke tests in CI.

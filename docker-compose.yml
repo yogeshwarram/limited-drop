@@ -1,3 +1,24 @@
+x-app: &app
+  build: .
+  environment: &app-environment
+    SPRING_PROFILES_ACTIVE: dev
+    SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/limited_drop?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+    SPRING_DATASOURCE_USERNAME: limited_drop
+    SPRING_DATASOURCE_PASSWORD: limited_drop
+    SPRING_DATA_REDIS_HOST: redis
+    SPRING_RABBITMQ_HOST: rabbitmq
+    APP_SECURITY_HMAC_SECRET: change-this-32-byte-development-secret-now
+    APP_SECURITY_DEV_TOKEN_ENDPOINT_ENABLED: "true"
+  depends_on:
+    mysql: {condition: service_healthy}
+  stop_grace_period: 25s
+  healthcheck:
+    test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health/readiness | grep -q UP"]
+    interval: 5s
+    timeout: 3s
+    retries: 12
+    start_period: 20s
+
 services:
   mysql:
     image: mysql:8.4
@@ -32,27 +53,31 @@ services:
       timeout: 5s
       retries: 20
 
-  app:
-    build: .
+  app1:
+    <<: *app
     environment:
-      SPRING_PROFILES_ACTIVE: dev
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/limited_drop?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
-      SPRING_DATASOURCE_USERNAME: limited_drop
-      SPRING_DATASOURCE_PASSWORD: limited_drop
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_RABBITMQ_HOST: rabbitmq
-      APP_SECURITY_HMAC_SECRET: change-this-32-byte-development-secret-now
-      APP_SECURITY_DEV_TOKEN_ENDPOINT_ENABLED: "true"
+      <<: *app-environment
+      APP_SEED_ENABLED: "true"
+
+  app2:
+    <<: *app
+    environment:
+      <<: *app-environment
+      APP_SEED_ENABLED: "false"
+
+  haproxy:
+    image: haproxy:3.0-alpine
     ports: ["8080:8080"]
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
-      mysql: {condition: service_healthy}
-      redis: {condition: service_healthy}
-      rabbitmq: {condition: service_healthy}
+      app1: {condition: service_started}
+      app2: {condition: service_started}
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8404/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   mysql-data:

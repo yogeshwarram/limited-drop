@@ -2,8 +2,12 @@ package com.limiteddrop.exception;
 
 import com.limiteddrop.response.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
+import org.hibernate.exception.JDBCConnectionException;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -24,7 +28,19 @@ public class ApiExceptionHandler {
         return error(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Request validation failed", r, violations);
     }
     @ExceptionHandler(org.springframework.web.bind.MissingRequestHeaderException.class) ResponseEntity<ApiError> missingHeader(Exception e, HttpServletRequest r) { return error(HttpStatus.BAD_REQUEST, "MISSING_HEADER", e.getMessage(), r, Map.of()); }
+    @ExceptionHandler({DataAccessResourceFailureException.class, CannotCreateTransactionException.class,
+            JDBCConnectionException.class, java.sql.SQLTransientConnectionException.class})
+    ResponseEntity<ApiError> databaseUnavailable(Exception e, HttpServletRequest r) {
+        ApiError body = apiError(HttpStatus.SERVICE_UNAVAILABLE, "DATABASE_UNAVAILABLE",
+                "The inventory database is temporarily unavailable; retry mutations with the same idempotency key", r, Map.of());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(body);
+    }
     private ResponseEntity<ApiError> error(HttpStatus status, String code, String message, HttpServletRequest request, Map<String, String> violations) {
-        return ResponseEntity.status(status).body(new ApiError(clock.instant(), status.value(), code, message, request.getRequestURI(), violations));
+        return ResponseEntity.status(status).body(apiError(status, code, message, request, violations));
+    }
+    private ApiError apiError(HttpStatus status, String code, String message, HttpServletRequest request, Map<String, String> violations) {
+        return new ApiError(clock.instant(), status.value(), code, message, request.getRequestURI(), violations);
     }
 }

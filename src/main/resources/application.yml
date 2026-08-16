@@ -5,19 +5,33 @@ spring:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/limited_drop}
     username: ${SPRING_DATASOURCE_USERNAME:limited_drop}
     password: ${SPRING_DATASOURCE_PASSWORD:limited_drop}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:2000}
+      validation-timeout: ${DB_VALIDATION_TIMEOUT_MS:1000}
+      data-source-properties:
+        connectTimeout: ${MYSQL_CONNECT_TIMEOUT_MS:1000}
+        socketTimeout: ${MYSQL_SOCKET_TIMEOUT_MS:3000}
+        tcpKeepAlive: true
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate
   flyway:
     enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:20s}
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:500ms}
+      timeout: ${REDIS_COMMAND_TIMEOUT:250ms}
   rabbitmq:
     host: ${SPRING_RABBITMQ_HOST:localhost}
     port: ${SPRING_RABBITMQ_PORT:5672}
+    connection-timeout: ${RABBITMQ_CONNECTION_TIMEOUT:1s}
     publisher-confirm-type: correlated
     publisher-returns: true
   cache:
@@ -35,6 +49,19 @@ management:
     health:
       probes:
         enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+
+server:
+  shutdown: graceful
+  tomcat:
+    threads:
+      max: ${SERVER_MAX_THREADS:50}
+    accept-count: ${SERVER_ACCEPT_COUNT:100}
+    connection-timeout: ${SERVER_CONNECTION_TIMEOUT:5s}
 
 app:
   reservations:

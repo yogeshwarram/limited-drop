@@ -4,6 +4,7 @@ import com.limiteddrop.response.ApiError;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.core.MethodParameter;
 import org.springframework.validation.BindingResult;
@@ -69,5 +70,18 @@ class ApiExceptionHandlerTest {
         assertThat(response.getBody().violations()).containsEntry("quantity", "must be positive")
                 .containsEntry("customerId", "invalid");
         assertThat(response.getBody().code()).isEqualTo("VALIDATION_ERROR");
+    }
+
+    @Test
+    void mapsDatabaseConnectivityFailuresToRetryableServiceUnavailable() {
+        var exception = new org.springframework.transaction.CannotCreateTransactionException("database down");
+
+        var response = handler.databaseUnavailable(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("1");
+        assertThat(response.getBody()).isEqualTo(new ApiError(NOW, 503, "DATABASE_UNAVAILABLE",
+                "The inventory database is temporarily unavailable; retry mutations with the same idempotency key",
+                "/api/v1/test", Map.of()));
     }
 }
