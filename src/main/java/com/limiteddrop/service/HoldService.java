@@ -30,37 +30,44 @@ public class HoldService {
     private final ReservationProperties properties;
     private final Clock clock;
     private final TransactionTemplate transactions;
+    private final DropMetadataCache metadataCache;
+    private final DropAdmissionController admission;
 
-    public HoldService(DropRepository drops, HoldRepository holds, OutboxService outbox, ReservationProperties properties, Clock clock, TransactionTemplate transactions) {
-        this.drops = drops; this.holds = holds; this.outbox = outbox; this.properties = properties; this.clock = clock; this.transactions = transactions;
+    public HoldService(DropRepository drops, HoldRepository holds, OutboxService outbox, ReservationProperties properties, Clock clock,
+                       TransactionTemplate transactions, DropMetadataCache metadataCache, DropAdmissionController admission) {
+        this.drops = drops; this.holds = holds; this.outbox = outbox; this.properties = properties; this.clock = clock;
+        this.transactions = transactions; this.metadataCache = metadataCache; this.admission = admission;
+        this.transactions.setTimeout(properties.getReservations().getTransactionTimeoutSeconds());
     }
 
     public HoldCreation create(String dropId, String customerId, CreateHoldRequest request, String idempotencyKey) {
-        Hold existing = holds.findByDrop_IdAndCustomerIdAndIdempotencyKey(dropId, customerId, idempotencyKey).orElse(null);
-        if (existing != null) return replay(existing, request.quantity());
-        try {
-            return Objects.requireNonNull(transactions.execute(status -> createInTransaction(dropId, customerId, request, idempotencyKey)));
-        } catch (DataIntegrityViolationException duplicate) {
-            Hold replay = holds.findByDrop_IdAndCustomerIdAndIdempotencyKey(dropId, customerId, idempotencyKey)
-                    .orElseThrow(() -> duplicate);
-            return replay(replay, request.quantity());
+        try (DropAdmissionController.Permit ignored = admission.acquire(dropId)) {
+            DropMetadata metadata = metadataCache.get(dropId);
+            try {
+                return Objects.requireNonNull(transactions.execute(status -> createInTransaction(dropId, customerId, request, idempotencyKey, metadata)));
+            } catch (DataIntegrityViolationException duplicate) {
+                Hold replay = holds.findByDrop_IdAndCustomerIdAndIdempotencyKey(dropId, customerId, idempotencyKey)
+                        .orElseThrow(() -> duplicate);
+                return replay(replay, request.quantity());
+            }
         }
     }
 
-    private HoldCreation createInTransaction(String dropId, String customerId, CreateHoldRequest request, String idempotencyKey) {
+    private HoldCreation createInTransaction(String dropId, String customerId, CreateHoldRequest request, String idempotencyKey, DropMetadata metadata) {
         Hold existing = holds.findByDrop_IdAndCustomerIdAndIdempotencyKey(dropId, customerId, idempotencyKey).orElse(null);
         if (existing != null) return replay(existing, request.quantity());
         Instant now = clock.instant();
+        if (metadata.opensAt().isAfter(now)) throw new DropNotOpenException();
         if (drops.reserveIfAvailable(dropId, request.quantity()) == 0) {
             // A same-key request may have committed while this transaction waited on the inventory row.
             Hold replay = holds.findIdempotencyKeyForUpdate(dropId, customerId, idempotencyKey).orElse(null);
             if (replay != null) return replay(replay, request.quantity());
-            throw failureForUnavailableDrop(dropId, now);
+            throw new ConflictException("Insufficient units remaining");
         }
-        Drop drop = drops.findById(dropId).orElseThrow(() -> new NotFoundException("Drop not found"));
-        int seconds = drop.getHoldDurationSeconds() == null ? Math.toIntExact(properties.getReservations().getDefaultHoldDuration().toSeconds()) : drop.getHoldDurationSeconds();
+        int seconds = metadata.holdDurationSeconds() == null ? Math.toIntExact(properties.getReservations().getDefaultHoldDuration().toSeconds()) : metadata.holdDurationSeconds();
+        Drop drop = drops.getReferenceById(dropId);
         Hold hold = new Hold(UUID.randomUUID().toString(), drop, customerId, request.quantity(), now.plusSeconds(seconds), idempotencyKey, now);
-        holds.saveAndFlush(hold);
+        holds.save(hold);
         outbox.record("hold.created", hold, now);
         return new HoldCreation(response(hold), false);
     }
@@ -117,10 +124,6 @@ public class HoldService {
         Hold hold = (locked ? holds.findByIdForUpdate(holdId) : holds.findById(holdId)).orElseThrow(() -> new NotFoundException("Hold not found"));
         if (!hold.getCustomerId().equals(customerId)) throw new NotFoundException("Hold not found");
         return hold;
-    }
-    private RuntimeException failureForUnavailableDrop(String id, Instant now) {
-        Drop drop = drops.findById(id).orElseThrow(() -> new NotFoundException("Drop not found"));
-        return drop.getOpensAt().isAfter(now) ? new DropNotOpenException() : new ConflictException("Insufficient units remaining");
     }
     private HoldCreation replay(Hold hold, int quantity) {
         if (hold.getQuantity() != quantity) throw new ConflictException("Idempotency-Key was previously used with a different quantity");

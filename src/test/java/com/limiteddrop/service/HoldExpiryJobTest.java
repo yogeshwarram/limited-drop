@@ -1,49 +1,63 @@
 package com.limiteddrop.service;
 
 import com.limiteddrop.config.ReservationProperties;
-import com.limiteddrop.domain.HoldState;
-import com.limiteddrop.persistence.HoldRepository;
+import com.limiteddrop.observability.DependencyAvailabilityLogger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.PageRequest;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
 
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class HoldExpiryJobTest {
-    @Mock HoldRepository holds;
-    @Mock HoldService holdService;
+    @Mock HoldExpiryService expiry;
+    @Mock DependencyAvailabilityLogger dependencies;
 
     @Test
-    void expiresOnlyTheBoundedCandidatePage() {
+    void expiresOneBoundedClaimedBatch() {
         ReservationProperties properties = new ReservationProperties();
         properties.getReservations().setExpiryBatchSize(7);
         Instant now = Instant.parse("2026-08-15T10:00:00Z");
-        when(holds.findExpiredIds(HoldState.ACTIVE, now, PageRequest.of(0, 7)))
-                .thenReturn(List.of("one", "two"));
 
-        new HoldExpiryJob(holds, holdService, properties, Clock.fixed(now, ZoneOffset.UTC)).expireHolds();
+        job(properties, now).expireHolds();
 
-        verify(holdService).expire("one");
-        verify(holdService).expire("two");
-        verifyNoMoreInteractions(holdService);
+        verify(expiry).expireNextBatch(now, 7);
+        verify(dependencies).recovered("mysql");
     }
 
     @Test
-    void doesNothingWhenThereAreNoExpiredCandidates() {
-        ReservationProperties properties = new ReservationProperties();
+    void retriesDeadlocksBeforeReportingFailure() {
         Instant now = Instant.parse("2026-08-15T10:00:00Z");
-        when(holds.findExpiredIds(eq(HoldState.ACTIVE), eq(now), any(PageRequest.class))).thenReturn(List.of());
+        when(expiry.expireNextBatch(eq(now), anyInt()))
+                .thenThrow(new org.springframework.dao.CannotAcquireLockException("deadlock"))
+                .thenThrow(new org.springframework.dao.CannotAcquireLockException("deadlock"))
+                .thenReturn(1);
 
-        new HoldExpiryJob(holds, holdService, properties, Clock.fixed(now, ZoneOffset.UTC)).expireHolds();
+        job(new ReservationProperties(), now).expireHolds();
 
-        verifyNoInteractions(holdService);
+        verify(expiry, times(3)).expireNextBatch(eq(now), anyInt());
+        verify(dependencies).recovered("mysql");
+        verify(dependencies, never()).failed(eq("mysql"), any());
+    }
+
+    @Test
+    void containsTransactionCreationFailuresAtSchedulerBoundary() {
+        Instant now = Instant.parse("2026-08-15T10:00:00Z");
+        var unavailable = new org.springframework.transaction.CannotCreateTransactionException("database down");
+        when(expiry.expireNextBatch(eq(now), anyInt())).thenThrow(unavailable);
+
+        job(new ReservationProperties(), now).expireHolds();
+
+        verify(dependencies).failed("mysql", unavailable);
+    }
+
+    private HoldExpiryJob job(ReservationProperties properties, Instant now) {
+        return new HoldExpiryJob(expiry, properties, Clock.fixed(now, ZoneOffset.UTC), dependencies);
     }
 }

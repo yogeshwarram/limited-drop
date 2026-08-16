@@ -18,8 +18,15 @@ class ExpectedDuplicateKeyLogFilterTest {
     }
 
     @Test
-    void keepsOtherDatabaseErrorsVisible() {
+    void suppressesKnownTransientDatabaseErrors() {
         var event = event(Level.ERROR, "Deadlock found when trying to get lock; try restarting transaction");
+
+        assertThat(filter.decide(event)).isEqualTo(FilterReply.DENY);
+    }
+
+    @Test
+    void keepsUnknownDatabaseErrorsVisible() {
+        var event = event(Level.ERROR, "Data truncation: invalid input");
 
         assertThat(filter.decide(event)).isEqualTo(FilterReply.NEUTRAL);
     }

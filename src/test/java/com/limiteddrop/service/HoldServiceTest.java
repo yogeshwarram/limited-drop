@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.TransactionStatus;
@@ -40,6 +41,8 @@ class HoldServiceTest {
     @Mock HoldRepository holds;
     @Mock OutboxService outbox;
     @Mock TransactionTemplate transactions;
+    @Mock DropMetadataCache metadataCache;
+    @Mock DropAdmissionController admission;
     HoldService service;
     Drop drop;
 
@@ -47,8 +50,11 @@ class HoldServiceTest {
     void setUp() {
         ReservationProperties properties = new ReservationProperties();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        service = new HoldService(drops, holds, outbox, properties, clock, transactions);
+        service = new HoldService(drops, holds, outbox, properties, clock, transactions, metadataCache, admission);
         drop = new Drop("drop-1", "Tiny drop", 3, NOW.minusSeconds(60), null, NOW);
+        lenient().when(metadataCache.get("drop-1")).thenReturn(new DropMetadata("drop-1", "Tiny drop", 3, NOW.minusSeconds(60), null));
+        lenient().when(admission.acquire(anyString())).thenReturn(() -> { });
+        lenient().when(drops.getReferenceById(anyString())).thenReturn(drop);
         lenient().when(transactions.execute(any())).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked") TransactionCallback<Object> callback = invocation.getArgument(0);
             return callback.doInTransaction(mock(TransactionStatus.class));
@@ -59,15 +65,17 @@ class HoldServiceTest {
     void createsHoldOnlyAfterAtomicInventoryReservation() {
         when(holds.findByDrop_IdAndCustomerIdAndIdempotencyKey("drop-1", "customer-1", "key-1")).thenReturn(Optional.empty());
         when(drops.reserveIfAvailable("drop-1", 2)).thenReturn(1);
-        when(drops.findById("drop-1")).thenReturn(Optional.of(drop));
 
         HoldCreation result = service.create("drop-1", "customer-1", new CreateHoldRequest(2), "key-1");
 
         assertThat(result.hold().state()).isEqualTo(HoldState.ACTIVE);
         assertThat(result.hold().expiresAt()).isEqualTo(NOW.plusSeconds(600));
         verify(drops).reserveIfAvailable("drop-1", 2);
+        InOrder pressureOrder = inOrder(admission, metadataCache);
+        pressureOrder.verify(admission).acquire("drop-1");
+        pressureOrder.verify(metadataCache).get("drop-1");
         ArgumentCaptor<Hold> hold = ArgumentCaptor.forClass(Hold.class);
-        verify(holds).saveAndFlush(hold.capture());
+        verify(holds).save(hold.capture());
         assertThat(hold.getValue().getQuantity()).isEqualTo(2);
         verify(outbox).record(eq("hold.created"), eq(hold.getValue()), eq(NOW));
     }
@@ -130,12 +138,11 @@ class HoldServiceTest {
         when(holds.findByDrop_IdAndCustomerIdAndIdempotencyKey("drop-1", "customer-1", "key-1"))
                 .thenReturn(Optional.empty());
         when(drops.reserveIfAvailable("drop-1", 2)).thenReturn(0);
-        when(drops.findById("drop-1")).thenReturn(Optional.of(drop));
 
         assertThatThrownBy(() -> service.create("drop-1", "customer-1", new CreateHoldRequest(2), "key-1"))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Insufficient units remaining");
-        verify(holds, never()).saveAndFlush(any());
+        verify(holds, never()).save(any());
         verifyNoInteractions(outbox);
     }
 
@@ -144,8 +151,7 @@ class HoldServiceTest {
         Drop future = new Drop("future", "Future", 3, NOW.plusSeconds(60), null, NOW);
         when(holds.findByDrop_IdAndCustomerIdAndIdempotencyKey("future", "customer-1", "key-1"))
                 .thenReturn(Optional.empty());
-        when(drops.reserveIfAvailable("future", 1)).thenReturn(0);
-        when(drops.findById("future")).thenReturn(Optional.of(future));
+        when(metadataCache.get("future")).thenReturn(new DropMetadata("future", "Future", 3, NOW.plusSeconds(60), null));
 
         assertThatThrownBy(() -> service.create("future", "customer-1", new CreateHoldRequest(1), "key-1"))
                 .isInstanceOf(DropNotOpenException.class);
@@ -153,10 +159,7 @@ class HoldServiceTest {
 
     @Test
     void reportsMissingDropWhenReservationFailsForUnknownDrop() {
-        when(holds.findByDrop_IdAndCustomerIdAndIdempotencyKey("missing", "customer-1", "key-1"))
-                .thenReturn(Optional.empty());
-        when(drops.reserveIfAvailable("missing", 1)).thenReturn(0);
-        when(drops.findById("missing")).thenReturn(Optional.empty());
+        when(metadataCache.get("missing")).thenThrow(new NotFoundException("Drop not found"));
 
         assertThatThrownBy(() -> service.create("missing", "customer-1", new CreateHoldRequest(1), "key-1"))
                 .isInstanceOf(NotFoundException.class)
@@ -243,7 +246,7 @@ class HoldServiceTest {
     void rechecksIdempotencyInsideTransactionWhenConcurrentRequestWon() {
         Hold existing = new Hold("hold-1", drop, "customer-1", 1, NOW.plusSeconds(600), "key-1", NOW);
         when(holds.findByDrop_IdAndCustomerIdAndIdempotencyKey("drop-1", "customer-1", "key-1"))
-                .thenReturn(Optional.empty(), Optional.of(existing));
+                .thenReturn(Optional.of(existing));
 
         HoldCreation result = service.create("drop-1", "customer-1", new CreateHoldRequest(1), "key-1");
 
@@ -256,7 +259,7 @@ class HoldServiceTest {
         Hold existing = new Hold("hold-1", drop, "customer-1", 1, NOW.plusSeconds(600), "key-1", NOW);
         doThrow(new DataIntegrityViolationException("duplicate")).when(transactions).execute(any(TransactionCallback.class));
         when(holds.findByDrop_IdAndCustomerIdAndIdempotencyKey("drop-1", "customer-1", "key-1"))
-                .thenReturn(Optional.empty(), Optional.of(existing));
+                .thenReturn(Optional.of(existing));
 
         HoldCreation result = service.create("drop-1", "customer-1", new CreateHoldRequest(1), "key-1");
 
@@ -268,7 +271,7 @@ class HoldServiceTest {
     void propagatesUniqueConstraintRaceWhenReplayCannotBeFound() {
         doThrow(new DataIntegrityViolationException("duplicate")).when(transactions).execute(any(TransactionCallback.class));
         when(holds.findByDrop_IdAndCustomerIdAndIdempotencyKey("drop-1", "customer-1", "key-1"))
-                .thenReturn(Optional.empty(), Optional.empty());
+                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.create("drop-1", "customer-1", new CreateHoldRequest(1), "key-1"))
                 .isInstanceOf(DataIntegrityViolationException.class);
@@ -294,15 +297,13 @@ class HoldServiceTest {
         when(holds.findByDrop_IdAndCustomerIdAndIdempotencyKey("custom", "customer-1", "key"))
                 .thenReturn(Optional.empty());
         when(drops.reserveIfAvailable("custom", 1)).thenReturn(1);
-        when(drops.findById("custom")).thenReturn(Optional.of(custom));
+        when(metadataCache.get("custom")).thenReturn(new DropMetadata("custom", "Custom", 3, NOW.minusSeconds(60), 120));
+        when(drops.getReferenceById("custom")).thenReturn(custom);
 
         HoldCreation result = service.create("custom", "customer-1", new CreateHoldRequest(1), "key");
-        assertThat(result.hold().expiresAt()).isEqualTo(NOW.plusSeconds(42));
+        assertThat(result.hold().expiresAt()).isEqualTo(NOW.plusSeconds(120));
 
-        when(holds.findByDrop_IdAndCustomerIdAndIdempotencyKey("missing", "customer-1", "key"))
-                .thenReturn(Optional.empty());
-        when(drops.reserveIfAvailable("missing", 1)).thenReturn(1);
-        when(drops.findById("missing")).thenReturn(Optional.empty());
+        when(metadataCache.get("missing")).thenThrow(new NotFoundException("Drop not found"));
         assertThatThrownBy(() -> service.create("missing", "customer-1", new CreateHoldRequest(1), "key"))
                 .isInstanceOf(NotFoundException.class);
     }

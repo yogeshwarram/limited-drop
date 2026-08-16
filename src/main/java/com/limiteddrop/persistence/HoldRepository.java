@@ -26,4 +26,7 @@ public interface HoldRepository extends JpaRepository<Hold, String> {
 
     @Query("select h.id from Hold h where h.state = :state and h.expiresAt <= :now order by h.expiresAt asc")
     List<String> findExpiredIds(@Param("state") HoldState state, @Param("now") Instant now, Pageable pageable);
+
+    @Query(value = "select id from holds where state = :state and expires_at <= :now order by expires_at asc limit :batchSize for update skip locked", nativeQuery = true)
+    List<String> claimExpiredIdsForUpdate(@Param("state") String state, @Param("now") Instant now, @Param("batchSize") int batchSize);
 }

@@ -2,6 +2,8 @@ package com.limiteddrop.messaging;
 
 import com.limiteddrop.config.ReservationProperties;
 import com.limiteddrop.domain.OutboxEvent;
+import com.limiteddrop.exception.DatabaseFailureClassifier;
+import com.limiteddrop.observability.DependencyAvailabilityLogger;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -18,10 +20,21 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class OutboxPublisher {
     private final OutboxClaimService claims; private final RabbitTemplate rabbit; private final ReservationProperties properties; private final Clock clock;
+    private final DependencyAvailabilityLogger dependencies;
     private final String owner = UUID.randomUUID().toString();
-    public OutboxPublisher(OutboxClaimService claims, RabbitTemplate rabbit, ReservationProperties properties, Clock clock) { this.claims = claims; this.rabbit = rabbit; this.properties = properties; this.clock = clock; }
+    public OutboxPublisher(OutboxClaimService claims, RabbitTemplate rabbit, ReservationProperties properties, Clock clock, DependencyAvailabilityLogger dependencies) { this.claims = claims; this.rabbit = rabbit; this.properties = properties; this.clock = clock; this.dependencies = dependencies; }
     @Scheduled(fixedDelayString = "${app.outbox.publish-delay:PT0.25S}", scheduler = "outboxTaskScheduler")
     public void publishPending() {
+        try {
+            publish();
+            dependencies.recovered("mysql");
+        } catch (RuntimeException failure) {
+            if (!DatabaseFailureClassifier.isUnavailable(failure)) throw failure;
+            dependencies.failed("mysql", failure);
+        }
+    }
+
+    private void publish() {
         Instant now = clock.instant();
         List<OutboxEvent> batch = claims.claim(owner, properties.getOutbox().getBatchSize(), now, properties.getOutbox().getClaimDuration());
         if (batch.isEmpty()) return;
@@ -35,6 +48,7 @@ public class OutboxPublisher {
                 dispatched.add(new Dispatch(event.getId(), correlation.getFuture()));
             } catch (Exception sendFailure) {
                 failed.add(event.getId());
+                dependencies.failed("rabbitmq", sendFailure);
             }
         }
 
@@ -46,6 +60,7 @@ public class OutboxPublisher {
         }
         claims.markPublished(owner, published, clock.instant());
         claims.releaseForRetry(owner, failed, clock.instant().plus(properties.getOutbox().getRetryDelay()));
+        if (!published.isEmpty() && failed.isEmpty()) dependencies.recovered("rabbitmq");
     }
 
     private void waitForConfirmations(List<Dispatch> dispatched) {

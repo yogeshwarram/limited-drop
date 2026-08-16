@@ -2,6 +2,7 @@ package com.limiteddrop.messaging;
 
 import com.limiteddrop.config.ReservationProperties;
 import com.limiteddrop.domain.OutboxEvent;
+import com.limiteddrop.observability.DependencyAvailabilityLogger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -24,6 +25,7 @@ class OutboxPublisherTest {
     private static final Instant NOW = Instant.parse("2026-08-15T10:00:00Z");
     @Mock OutboxClaimService claims;
     @Mock RabbitTemplate rabbit;
+    @Mock DependencyAvailabilityLogger dependencies;
 
     @Test
     void releasesClaimWhenBrokerSendThrows() {
@@ -106,8 +108,35 @@ class OutboxPublisherTest {
         verify(claims, never()).releaseForRetry(anyString(), anyList(), any());
     }
 
+    @Test
+    void containsTransactionCreationFailuresAtSchedulerBoundary() {
+        var unavailable = new org.springframework.transaction.CannotCreateTransactionException("database down");
+        when(claims.claim(anyString(), eq(1000), eq(NOW), eq(Duration.ofSeconds(30)))).thenThrow(unavailable);
+
+        publisher(properties()).publishPending();
+
+        verify(dependencies).failed("mysql", unavailable);
+    }
+
+    @Test
+    void doesNotReportBrokerRecoveryForPartiallyFailedBatch() {
+        when(claims.claim(anyString(), eq(1000), eq(NOW), eq(Duration.ofSeconds(30))))
+                .thenReturn(List.of(event("ok"), event("failed")));
+        doAnswer(invocation -> {
+            CorrelationData correlation = invocation.getArgument(3);
+            if (correlation.getId().equals("failed")) throw new RuntimeException("broker down");
+            correlation.getFuture().complete(new CorrelationData.Confirm(true, null));
+            return null;
+        }).when(rabbit).convertAndSend(anyString(), anyString(), anyString(), any(CorrelationData.class));
+
+        publisher(properties()).publishPending();
+
+        verify(dependencies).failed(eq("rabbitmq"), any(RuntimeException.class));
+        verify(dependencies, never()).recovered("rabbitmq");
+    }
+
     private OutboxPublisher publisher(ReservationProperties properties) {
-        return new OutboxPublisher(claims, rabbit, properties, Clock.fixed(NOW, ZoneOffset.UTC));
+        return new OutboxPublisher(claims, rabbit, properties, Clock.fixed(NOW, ZoneOffset.UTC), dependencies);
     }
 
     private ReservationProperties properties() {

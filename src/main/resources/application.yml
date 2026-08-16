@@ -14,10 +14,16 @@ spring:
         connectTimeout: ${MYSQL_CONNECT_TIMEOUT_MS:1000}
         socketTimeout: ${MYSQL_SOCKET_TIMEOUT_MS:3000}
         tcpKeepAlive: true
+        connectionTimeZone: UTC
+        forceConnectionTimeZoneToSession: true
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate.jdbc.batch_size: ${HIBERNATE_JDBC_BATCH_SIZE:100}
+      hibernate.order_inserts: true
+      hibernate.order_updates: true
   flyway:
     enabled: true
   lifecycle:
@@ -66,8 +72,11 @@ server:
 app:
   reservations:
     default-hold-duration: PT10M
-    expiry-scan-delay: PT5S
-    expiry-batch-size: 100
+    expiry-scan-delay: ${APP_RESERVATIONS_EXPIRY_SCAN_DELAY:PT0.25S}
+    expiry-batch-size: ${APP_RESERVATIONS_EXPIRY_BATCH_SIZE:200}
+    admission-permits: ${APP_RESERVATIONS_ADMISSION_PERMITS:4}
+    admission-timeout: ${APP_RESERVATIONS_ADMISSION_TIMEOUT:50ms}
+    transaction-timeout-seconds: ${APP_RESERVATIONS_TRANSACTION_TIMEOUT_SECONDS:3}
   outbox:
     publish-delay: PT0.25S
     confirm-timeout: PT5S

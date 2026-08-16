@@ -11,8 +11,11 @@ class ReservationPropertiesTest {
     void exposesDefaultsAndAllConfigurationSetters() {
         ReservationProperties properties = new ReservationProperties();
         assertThat(properties.getReservations().getDefaultHoldDuration()).isEqualTo(Duration.ofMinutes(10));
-        assertThat(properties.getReservations().getExpiryScanDelay()).isEqualTo(Duration.ofSeconds(5));
-        assertThat(properties.getReservations().getExpiryBatchSize()).isEqualTo(100);
+        assertThat(properties.getReservations().getExpiryScanDelay()).isEqualTo(Duration.ofMillis(250));
+        assertThat(properties.getReservations().getExpiryBatchSize()).isEqualTo(200);
+        assertThat(properties.getReservations().getAdmissionPermits()).isEqualTo(4);
+        assertThat(properties.getReservations().getAdmissionTimeout()).isEqualTo(Duration.ofMillis(50));
+        assertThat(properties.getReservations().getTransactionTimeoutSeconds()).isEqualTo(3);
         assertThat(properties.getOutbox().getPublishDelay()).isEqualTo(Duration.ofMillis(250));
         assertThat(properties.getOutbox().getConfirmTimeout()).isEqualTo(Duration.ofSeconds(5));
         assertThat(properties.getOutbox().getClaimDuration()).isEqualTo(Duration.ofSeconds(30));
@@ -25,6 +28,9 @@ class ReservationPropertiesTest {
         properties.getReservations().setDefaultHoldDuration(Duration.ofMinutes(2));
         properties.getReservations().setExpiryScanDelay(Duration.ofSeconds(8));
         properties.getReservations().setExpiryBatchSize(12);
+        properties.getReservations().setAdmissionPermits(3);
+        properties.getReservations().setAdmissionTimeout(Duration.ofMillis(20));
+        properties.getReservations().setTransactionTimeoutSeconds(2);
         properties.getOutbox().setPublishDelay(Duration.ofSeconds(4));
         properties.getOutbox().setConfirmTimeout(Duration.ofSeconds(7));
         properties.getOutbox().setClaimDuration(Duration.ofMinutes(1));
@@ -41,6 +47,9 @@ class ReservationPropertiesTest {
         assertThat(properties.getReservations().getDefaultHoldDuration()).isEqualTo(Duration.ofMinutes(2));
         assertThat(properties.getReservations().getExpiryScanDelay()).isEqualTo(Duration.ofSeconds(8));
         assertThat(properties.getReservations().getExpiryBatchSize()).isEqualTo(12);
+        assertThat(properties.getReservations().getAdmissionPermits()).isEqualTo(3);
+        assertThat(properties.getReservations().getAdmissionTimeout()).isEqualTo(Duration.ofMillis(20));
+        assertThat(properties.getReservations().getTransactionTimeoutSeconds()).isEqualTo(2);
         assertThat(properties.getOutbox().getPublishDelay()).isEqualTo(Duration.ofSeconds(4));
         assertThat(properties.getOutbox().getConfirmTimeout()).isEqualTo(Duration.ofSeconds(7));
         assertThat(properties.getOutbox().getClaimDuration()).isEqualTo(Duration.ofMinutes(1));

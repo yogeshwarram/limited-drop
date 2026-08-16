@@ -17,14 +17,23 @@ public class ReservationProperties {
 
     public static class Reservations {
         private Duration defaultHoldDuration = Duration.ofMinutes(10);
-        private Duration expiryScanDelay = Duration.ofSeconds(5);
-        private int expiryBatchSize = 100;
+        private Duration expiryScanDelay = Duration.ofMillis(250);
+        private int expiryBatchSize = 200;
+        private int admissionPermits = 4;
+        private Duration admissionTimeout = Duration.ofMillis(50);
+        private int transactionTimeoutSeconds = 3;
         public Duration getDefaultHoldDuration() { return defaultHoldDuration; }
         public void setDefaultHoldDuration(Duration defaultHoldDuration) { this.defaultHoldDuration = defaultHoldDuration; }
         public Duration getExpiryScanDelay() { return expiryScanDelay; }
         public void setExpiryScanDelay(Duration expiryScanDelay) { this.expiryScanDelay = expiryScanDelay; }
         public int getExpiryBatchSize() { return expiryBatchSize; }
         public void setExpiryBatchSize(int expiryBatchSize) { this.expiryBatchSize = expiryBatchSize; }
+        public int getAdmissionPermits() { return admissionPermits; }
+        public void setAdmissionPermits(int admissionPermits) { this.admissionPermits = admissionPermits; }
+        public Duration getAdmissionTimeout() { return admissionTimeout; }
+        public void setAdmissionTimeout(Duration admissionTimeout) { this.admissionTimeout = admissionTimeout; }
+        public int getTransactionTimeoutSeconds() { return transactionTimeoutSeconds; }
+        public void setTransactionTimeoutSeconds(int transactionTimeoutSeconds) { this.transactionTimeoutSeconds = transactionTimeoutSeconds; }
     }
     public static class Outbox {
         private Duration publishDelay = Duration.ofMillis(250);

@@ -73,7 +73,7 @@ class ApiExceptionHandlerTest {
     }
 
     @Test
-    void mapsDatabaseConnectivityFailuresToRetryableServiceUnavailable() {
+    void mapsDatabaseConnectivityFailuresToRetryableServiceUnavailable() throws Exception {
         var exception = new org.springframework.transaction.CannotCreateTransactionException("database down");
 
         var response = handler.databaseUnavailable(exception, request);
@@ -83,5 +83,23 @@ class ApiExceptionHandlerTest {
         assertThat(response.getBody()).isEqualTo(new ApiError(NOW, 503, "DATABASE_UNAVAILABLE",
                 "The inventory database is temporarily unavailable; retry mutations with the same idempotency key",
                 "/api/v1/test", Map.of()));
+    }
+
+    @Test
+    void mapsNestedSqlConnectionFailuresToServiceUnavailable() throws Exception {
+        var sql = new java.sql.SQLNonTransientConnectionException("connection closed", "08006");
+        var response = handler.databaseUnavailable(new org.springframework.orm.jpa.JpaSystemException(new RuntimeException("rollback failed", sql)), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody().code()).isEqualTo("DATABASE_UNAVAILABLE");
+    }
+
+    @Test
+    void mapsAdmissionRejectionToRetryableTooManyRequests() {
+        var response = handler.reservationBusy(new ReservationBusyException(), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("1");
+        assertThat(response.getBody().code()).isEqualTo("RESERVATION_BUSY");
     }
 }

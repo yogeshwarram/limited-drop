@@ -3,6 +3,7 @@ package com.limiteddrop.messaging;
 import com.limiteddrop.domain.OutboxEvent;
 import com.limiteddrop.persistence.OutboxEventRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -15,7 +16,7 @@ public class OutboxClaimService {
 
     public OutboxClaimService(OutboxEventRepository events) { this.events = events; }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public List<OutboxEvent> claim(String owner, int batchSize, Instant now, Duration claimDuration) {
         List<OutboxEvent> claimed = events.findClaimableForUpdate(now, batchSize);
         if (claimed.isEmpty()) return claimed;

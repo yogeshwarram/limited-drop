@@ -21,6 +21,9 @@ class OperationalConfigurationTest {
         assertThat(environment.getProperty("spring.datasource.hikari.validation-timeout", Long.class)).isEqualTo(1_000L);
         assertThat(environment.getProperty("spring.datasource.hikari.data-source-properties.connectTimeout", Integer.class)).isEqualTo(1_000);
         assertThat(environment.getProperty("spring.datasource.hikari.data-source-properties.socketTimeout", Integer.class)).isEqualTo(3_000);
+        assertThat(environment.getProperty("spring.datasource.hikari.data-source-properties.connectionTimeZone")).isEqualTo("UTC");
+        assertThat(environment.getProperty("spring.datasource.hikari.data-source-properties.forceConnectionTimeZoneToSession", Boolean.class)).isTrue();
+        assertThat(environment.getProperty("spring.jpa.properties.hibernate.jdbc.batch_size", Integer.class)).isEqualTo(100);
         assertThat(environment.getProperty("server.tomcat.threads.max", Integer.class)).isEqualTo(50);
         assertThat(environment.getProperty("server.tomcat.accept-count", Integer.class)).isEqualTo(100);
         assertThat(environment.getProperty("spring.data.redis.connect-timeout", Duration.class)).isEqualTo(Duration.ofMillis(500));
@@ -28,6 +31,10 @@ class OperationalConfigurationTest {
         assertThat(environment.getProperty("spring.rabbitmq.connection-timeout", Duration.class)).isEqualTo(Duration.ofSeconds(1));
         assertThat(environment.getProperty("server.shutdown")).isEqualTo("graceful");
         assertThat(environment.getProperty("spring.lifecycle.timeout-per-shutdown-phase", Duration.class)).isEqualTo(Duration.ofSeconds(20));
+        assertThat(environment.getProperty("app.reservations.expiry-scan-delay", Duration.class)).isEqualTo(Duration.ofMillis(250));
+        assertThat(environment.getProperty("app.reservations.expiry-batch-size", Integer.class)).isEqualTo(200);
+        assertThat(environment.getProperty("app.reservations.admission-permits", Integer.class)).isEqualTo(4);
+        assertThat(environment.getProperty("app.reservations.admission-timeout", Duration.class)).isEqualTo(Duration.ofMillis(50));
     }
 
     @Test
