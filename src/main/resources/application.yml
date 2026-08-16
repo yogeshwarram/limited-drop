@@ -49,5 +49,7 @@ app:
   security:
     issuer-uri: ${APP_SECURITY_ISSUER_URI:}
     jwk-set-uri: ${APP_SECURITY_JWK_SET_URI:}
+    expected-issuer: ${APP_SECURITY_EXPECTED_ISSUER:}
+    audience: ${APP_SECURITY_AUDIENCE:limited-drop-api}
     hmac-secret: ${APP_SECURITY_HMAC_SECRET:}
     dev-token-endpoint-enabled: ${APP_SECURITY_DEV_TOKEN_ENDPOINT_ENABLED:false}

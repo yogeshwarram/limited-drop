@@ -13,7 +13,7 @@ import java.time.Clock;
 public class HoldExpiryJob {
     private final HoldRepository holds; private final HoldService holdService; private final ReservationProperties properties; private final Clock clock;
     public HoldExpiryJob(HoldRepository holds, HoldService holdService, ReservationProperties properties, Clock clock) { this.holds = holds; this.holdService = holdService; this.properties = properties; this.clock = clock; }
-    @Scheduled(fixedDelayString = "${app.reservations.expiry-scan-delay:PT5S}")
+    @Scheduled(fixedDelayString = "${app.reservations.expiry-scan-delay:PT5S}", scheduler = "holdExpiryTaskScheduler")
     public void expireHolds() {
         holds.findExpiredIds(HoldState.ACTIVE, clock.instant(), PageRequest.of(0, properties.getReservations().getExpiryBatchSize()))
                 .forEach(holdService::expire);

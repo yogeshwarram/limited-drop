@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
 public class OutboxPublisher {
     private final OutboxEventRepository events; private final RabbitTemplate rabbit; private final ReservationProperties properties; private final Clock clock;
     public OutboxPublisher(OutboxEventRepository events, RabbitTemplate rabbit, ReservationProperties properties, Clock clock) { this.events = events; this.rabbit = rabbit; this.properties = properties; this.clock = clock; }
-    @Scheduled(fixedDelayString = "${app.outbox.publish-delay:PT2S}")
+    @Scheduled(fixedDelayString = "${app.outbox.publish-delay:PT2S}", scheduler = "outboxTaskScheduler")
     public void publishPending() {
         events.findUnpublished(PageRequest.of(0, 100)).forEach(this::publishOne);
     }

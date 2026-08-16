@@ -47,4 +47,15 @@ class InfrastructureConfigurationTest {
         assertThat(configuration.cacheResolver()).isNull();
         assertThat(configuration.keyGenerator()).isNull();
     }
+
+    @Test
+    void isolatesExpiryAndOutboxWorkOnDedicatedSchedulers() {
+        InfrastructureConfiguration configuration = new InfrastructureConfiguration();
+        var expiry = configuration.holdExpiryTaskScheduler();
+        var outbox = configuration.outboxTaskScheduler();
+
+        assertThat(expiry).isNotSameAs(outbox);
+        assertThat(expiry.getThreadNamePrefix()).isEqualTo("hold-expiry-");
+        assertThat(outbox.getThreadNamePrefix()).isEqualTo("outbox-publisher-");
+    }
 }

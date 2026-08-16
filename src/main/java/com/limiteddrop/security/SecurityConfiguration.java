@@ -9,7 +9,11 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtDecoders;
+import org.springframework.security.oauth2.jwt.JwtClaimValidator;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -39,12 +43,28 @@ public class SecurityConfiguration {
     @Bean
     JwtDecoder jwtDecoder(ReservationProperties properties) {
         var security = properties.getSecurity();
-        if (hasText(security.getIssuerUri())) return JwtDecoders.fromIssuerLocation(security.getIssuerUri());
-        if (hasText(security.getJwkSetUri())) return NimbusJwtDecoder.withJwkSetUri(security.getJwkSetUri()).build();
+        if (!hasText(security.getAudience())) throw new IllegalStateException("Configure APP_SECURITY_AUDIENCE");
+        if (hasText(security.getIssuerUri())) {
+            NimbusJwtDecoder decoder = (NimbusJwtDecoder) JwtDecoders.fromIssuerLocation(security.getIssuerUri());
+            decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                    JwtValidators.createDefaultWithIssuer(security.getIssuerUri()), audienceValidator(security.getAudience())));
+            return decoder;
+        }
+        if (hasText(security.getJwkSetUri())) {
+            if (!hasText(security.getExpectedIssuer())) {
+                throw new IllegalStateException("Configure APP_SECURITY_EXPECTED_ISSUER when using APP_SECURITY_JWK_SET_URI");
+            }
+            NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(security.getJwkSetUri()).build();
+            decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                    JwtValidators.createDefaultWithIssuer(security.getExpectedIssuer()), audienceValidator(security.getAudience())));
+            return decoder;
+        }
         if (!hasText(security.getHmacSecret()) || security.getHmacSecret().getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalStateException("Configure APP_SECURITY_ISSUER_URI, APP_SECURITY_JWK_SET_URI, or a >=32 byte APP_SECURITY_HMAC_SECRET");
         }
-        return NimbusJwtDecoder.withSecretKey(new SecretKeySpec(security.getHmacSecret().getBytes(StandardCharsets.UTF_8), "HmacSHA256")).build();
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(new SecretKeySpec(security.getHmacSecret().getBytes(StandardCharsets.UTF_8), "HmacSHA256")).build();
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(JwtValidators.createDefault(), audienceValidator(security.getAudience())));
+        return decoder;
     }
 
     @Bean
@@ -66,4 +86,7 @@ public class SecurityConfiguration {
     }
 
     private boolean hasText(String value) { return value != null && !value.isBlank(); }
+    private OAuth2TokenValidator<org.springframework.security.oauth2.jwt.Jwt> audienceValidator(String audience) {
+        return new JwtClaimValidator<List<String>>("aud", claim -> claim != null && claim.contains(audience));
+    }
 }

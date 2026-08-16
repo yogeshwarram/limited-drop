@@ -42,12 +42,18 @@ public class ReservationProperties {
     public static class Security {
         private String issuerUri;
         private String jwkSetUri;
+        private String expectedIssuer;
+        private String audience = "limited-drop-api";
         private String hmacSecret;
         private boolean devTokenEndpointEnabled;
         public String getIssuerUri() { return issuerUri; }
         public void setIssuerUri(String issuerUri) { this.issuerUri = issuerUri; }
         public String getJwkSetUri() { return jwkSetUri; }
         public void setJwkSetUri(String jwkSetUri) { this.jwkSetUri = jwkSetUri; }
+        public String getExpectedIssuer() { return expectedIssuer; }
+        public void setExpectedIssuer(String expectedIssuer) { this.expectedIssuer = expectedIssuer; }
+        public String getAudience() { return audience; }
+        public void setAudience(String audience) { this.audience = audience; }
         public String getHmacSecret() { return hmacSecret; }
         public void setHmacSecret(String hmacSecret) { this.hmacSecret = hmacSecret; }
         public boolean isDevTokenEndpointEnabled() { return devTokenEndpointEnabled; }

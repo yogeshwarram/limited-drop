@@ -21,6 +21,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -44,6 +45,7 @@ class AdminDropServiceTest {
     @Mock AdminIdempotencyRepository idempotency;
     @Mock OutboxService outbox;
     @Mock TransactionTemplate transactions;
+    @Mock DropMetadataCache metadataCache;
     private AdminDropService service;
     private ObjectMapper mapper;
 
@@ -55,7 +57,7 @@ class AdminDropServiceTest {
             return callback.doInTransaction(mock(TransactionStatus.class));
         });
         service = new AdminDropService(drops, audits, idempotency, outbox, mapper,
-                Clock.fixed(NOW, ZoneOffset.UTC), transactions);
+                Clock.fixed(NOW, ZoneOffset.UTC), transactions, metadataCache);
     }
 
     @Test
@@ -104,6 +106,40 @@ class AdminDropServiceTest {
         verify(drops).findByIdForUpdate("drop-1");
         verify(audits).save(any());
         verify(outbox).record(eq("drop.capacity.adjusted"), eq("drop-1"), anyMap(), eq(NOW));
+        verify(metadataCache).evict("drop-1");
+    }
+
+    @Test
+    void rejectsCapacityOverflowWithoutPartiallyMutatingTheDrop() {
+        Drop drop = new Drop("drop-1", "Concert", Integer.MAX_VALUE, NOW, null, NOW);
+        when(drops.findByIdForUpdate("drop-1")).thenReturn(Optional.of(drop));
+
+        assertThatThrownBy(() -> service.addCapacity("admin", "adjust-key", "drop-1", new CapacityAdjustmentRequest(1, "extra allocation")))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("supported maximum");
+        assertThat(drop.getTotalUnits()).isEqualTo(Integer.MAX_VALUE);
+        assertThat(drop.getAvailableUnits()).isEqualTo(Integer.MAX_VALUE);
+        verify(drops, never()).saveAndFlush(any());
+        verify(metadataCache, never()).evict(anyString());
+    }
+
+    @Test
+    void evictsMetadataOnlyAfterTheCapacityTransactionCommits() {
+        Drop drop = new Drop("drop-1", "Concert", 10, NOW, null, NOW);
+        when(drops.findByIdForUpdate("drop-1")).thenReturn(Optional.of(drop));
+        when(drops.saveAndFlush(drop)).thenReturn(drop);
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.addCapacity("admin", "adjust-key", "drop-1", new CapacityAdjustmentRequest(5, "extra allocation"));
+            verify(metadataCache, never()).evict(anyString());
+
+            TransactionSynchronizationManager.getSynchronizations().forEach(synchronization -> synchronization.afterCommit());
+            verify(metadataCache).evict("drop-1");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
     }
 
     @Test

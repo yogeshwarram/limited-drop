@@ -23,6 +23,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -47,11 +49,13 @@ public class AdminDropService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final TransactionTemplate transactions;
+    private final DropMetadataCache metadataCache;
 
     public AdminDropService(DropRepository drops, AdminAuditRepository audits, AdminIdempotencyRepository idempotency,
-                            OutboxService outbox, ObjectMapper objectMapper, Clock clock, TransactionTemplate transactions) {
+                            OutboxService outbox, ObjectMapper objectMapper, Clock clock, TransactionTemplate transactions,
+                            DropMetadataCache metadataCache) {
         this.drops = drops; this.audits = audits; this.idempotency = idempotency; this.outbox = outbox;
-        this.objectMapper = objectMapper; this.clock = clock; this.transactions = transactions;
+        this.objectMapper = objectMapper; this.clock = clock; this.transactions = transactions; this.metadataCache = metadataCache;
     }
 
     public AdminCommandResult<DropResponse> create(String actor, String key, CreateDropRequest request) {
@@ -114,9 +118,11 @@ public class AdminDropService {
         Instant now = clock.instant();
         int beforeTotal = drop.getTotalUnits();
         int beforeAvailable = drop.getAvailableUnits();
-        drop.addCapacity(quantity);
+        try { drop.addCapacity(quantity); }
+        catch (ArithmeticException overflow) { throw new ConflictException("Capacity exceeds the supported maximum"); }
         drops.saveAndFlush(drop);
         recordAudit(actor, drop, "capacity.adjusted", reason, beforeTotal, beforeAvailable, drop.getTotalUnits(), drop.getAvailableUnits(), now);
+        evictMetadataAfterCommit(drop.getId());
         return response(drop);
     }
 
@@ -162,6 +168,15 @@ public class AdminDropService {
     private String hash(Object request) {
         try { return hex(MessageDigest.getInstance("SHA-256").digest(objectMapper.writeValueAsBytes(request))); }
         catch (Exception e) { throw new IllegalStateException("Cannot hash admin request", e); }
+    }
+    private void evictMetadataAfterCommit(String dropId) {
+        if (TransactionSynchronizationManager.isActualTransactionActive() && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { metadataCache.evict(dropId); }
+            });
+        } else {
+            metadataCache.evict(dropId);
+        }
     }
     private String hex(byte[] bytes) { StringBuilder value = new StringBuilder(); for (byte b : bytes) value.append(String.format("%02x", b)); return value.toString(); }
     private DropResponse response(Drop drop) { return new DropResponse(drop.getId(), drop.getTitle(), drop.getTotalUnits(), drop.getAvailableUnits(), drop.getOpensAt(), drop.getHoldDurationSeconds()); }

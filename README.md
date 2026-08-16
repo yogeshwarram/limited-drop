@@ -53,7 +53,7 @@ To remove local volumes after the demo, run `docker-compose down -v`.
 | `POST` | `/api/v1/holds/{holdId}/confirm` | Confirm an active hold; requires `Idempotency-Key` |
 | `DELETE` | `/api/v1/holds/{holdId}` | Cancel an active hold |
 
-The JWT `sub` claim is the customer ID. A customer cannot read or change another customer's hold. In production configure either `APP_SECURITY_ISSUER_URI` (OIDC discovery) or `APP_SECURITY_JWK_SET_URI`; never enable the development token endpoint or use the shared HMAC secret in production.
+The JWT `sub` claim is the customer ID. A customer cannot read or change another customer's hold. Every token must target `APP_SECURITY_AUDIENCE` (default `limited-drop-api`). In production configure either `APP_SECURITY_ISSUER_URI` (OIDC discovery) or `APP_SECURITY_JWK_SET_URI`; direct JWKS configuration additionally requires `APP_SECURITY_EXPECTED_ISSUER`. Never enable the development token endpoint or use the shared HMAC secret in production.
 
 ## Admin drop management
 
@@ -116,11 +116,11 @@ The create idempotency key is unique per `(drop, customer, key)`. A replay with 
 
 The default hold period is `PT10M`, configurable with `APP_RESERVATIONS_DEFAULT_HOLD_DURATION`. A drop may override this at creation/seed time. Each hold stores its actual expiry timestamp, so changing configuration does not alter existing promises.
 
-The scheduled expiry job scans expired active IDs in bounded batches and locks/validates each hold again before expiring it. Multiple application replicas may process the same candidate, but the lock and state check allow only one to release inventory. Confirm/cancel performs the same expiry check lazily, so capacity is reclaimed even if the background worker is delayed.
+The scheduled expiry job scans expired active IDs in bounded batches and locks/validates each hold again before expiring it. Multiple application replicas may process the same candidate, but the lock and state check allow only one to release inventory. Confirm/cancel performs the same expiry check lazily, so capacity is reclaimed even if the background worker is delayed. Expiry and outbox publishing use separate schedulers so a slow broker cannot starve inventory recovery.
 
 ### Redis
 
-Redis caches static drop metadata (title, opening time, total capacity, and configured hold period). Remaining inventory is deliberately read from MySQL on every public drop response, satisfying the real-time availability requirement. Redis cache errors are swallowed and fall back to MySQL; it has no role in admission, locking, or inventory accounting.
+Redis caches static drop metadata (title, opening time, total capacity, and configured hold period). Capacity adjustments evict the affected metadata entry after the database transaction commits. Remaining inventory is deliberately read from MySQL on every public drop response, satisfying the real-time availability requirement. Redis cache errors are swallowed and fall back to MySQL; it has no role in admission, locking, or inventory accounting.
 
 ### RabbitMQ and the outbox
 
@@ -139,11 +139,13 @@ All connection details are environment configurable:
 | `SPRING_RABBITMQ_HOST` | `localhost` |
 | `APP_SECURITY_ISSUER_URI` | none |
 | `APP_SECURITY_JWK_SET_URI` | none |
+| `APP_SECURITY_EXPECTED_ISSUER` | required with direct JWKS |
+| `APP_SECURITY_AUDIENCE` | `limited-drop-api` |
 | `APP_SECURITY_HMAC_SECRET` | none outside `dev` |
 | `APP_RESERVATIONS_DEFAULT_HOLD_DURATION` | `PT10M` |
 | `APP_RESERVATIONS_EXPIRY_SCAN_DELAY` | `PT5S` |
 
-OIDC issuer configuration takes precedence over direct JWKS configuration, which takes precedence over HMAC. Application startup fails if none is configured (except under the explicit `dev` profile).
+OIDC issuer configuration takes precedence over direct JWKS configuration, which takes precedence over HMAC. Issuer and audience claims are validated for production JWTs; direct JWKS mode fails startup without an expected issuer. Application startup fails if no signing configuration is supplied (except under the explicit `dev` profile).
 
 ## Tests
 

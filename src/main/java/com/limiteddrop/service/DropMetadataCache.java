@@ -4,6 +4,7 @@ import com.limiteddrop.domain.Drop;
 import com.limiteddrop.persistence.DropRepository;
 import com.limiteddrop.exception.NotFoundException;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -15,4 +16,6 @@ public class DropMetadataCache {
         Drop drop = dropRepository.findById(dropId).orElseThrow(() -> new NotFoundException("Drop not found"));
         return new DropMetadata(drop.getId(), drop.getTitle(), drop.getTotalUnits(), drop.getOpensAt(), drop.getHoldDurationSeconds());
     }
+    @CacheEvict(cacheNames = "drop-metadata", key = "#dropId")
+    public void evict(String dropId) { }
 }

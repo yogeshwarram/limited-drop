@@ -29,5 +29,10 @@ public class Drop {
     public int getAvailableUnits() { return availableUnits; }
     public Instant getOpensAt() { return opensAt; }
     public Integer getHoldDurationSeconds() { return holdDurationSeconds; }
-    public void addCapacity(int quantity) { this.totalUnits += quantity; this.availableUnits += quantity; }
+    public void addCapacity(int quantity) {
+        int adjustedTotal = Math.addExact(this.totalUnits, quantity);
+        int adjustedAvailable = Math.addExact(this.availableUnits, quantity);
+        this.totalUnits = adjustedTotal;
+        this.availableUnits = adjustedAvailable;
+    }
 }

@@ -16,6 +16,7 @@ import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -24,6 +25,12 @@ import java.time.Duration;
 public class InfrastructureConfiguration implements CachingConfigurer {
     @Bean
     Clock clock() { return Clock.systemUTC(); }
+
+    @Bean("holdExpiryTaskScheduler")
+    ThreadPoolTaskScheduler holdExpiryTaskScheduler() { return taskScheduler("hold-expiry-"); }
+
+    @Bean("outboxTaskScheduler")
+    ThreadPoolTaskScheduler outboxTaskScheduler() { return taskScheduler("outbox-publisher-"); }
 
     @Bean
     CacheManager cacheManager(org.springframework.data.redis.connection.RedisConnectionFactory connectionFactory) {
@@ -55,4 +62,13 @@ public class InfrastructureConfiguration implements CachingConfigurer {
     Queue auditQueue() { return new Queue("drop.events.audit", true); }
     @Bean
     Binding auditBinding(Queue auditQueue, TopicExchange dropEventsExchange) { return BindingBuilder.bind(auditQueue).to(dropEventsExchange).with("#"); }
+
+    private ThreadPoolTaskScheduler taskScheduler(String threadNamePrefix) {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix(threadNamePrefix);
+        scheduler.setWaitForTasksToCompleteOnShutdown(true);
+        scheduler.setAwaitTerminationSeconds(10);
+        return scheduler;
+    }
 }

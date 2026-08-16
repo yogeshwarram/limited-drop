@@ -28,6 +28,7 @@ class DemoTokenServiceTest {
                 .build().parseSignedClaims(token).getPayload();
 
         assertThat(claims.getSubject()).isEqualTo("alice");
+        assertThat(claims.getAudience()).containsExactly("limited-drop-api");
         assertThat(claims.getIssuedAt().toInstant()).isEqualTo(now);
         assertThat(claims.getExpiration().toInstant()).isEqualTo(now.plusSeconds(3600));
     }
