@@ -120,13 +120,13 @@ The scheduled expiry job scans expired active IDs in bounded batches and locks/v
 
 ### Redis
 
-Redis caches static drop metadata (title, opening time, total capacity, and configured hold period). Capacity adjustments evict the affected metadata entry after the database transaction commits. Remaining inventory is deliberately read from MySQL on every public drop response, satisfying the real-time availability requirement. Redis cache errors are swallowed and fall back to MySQL; it has no role in admission, locking, or inventory accounting.
+Redis caches static drop metadata (title, opening time, total capacity, and configured hold period). Capacity adjustments evict the affected metadata entry after the database transaction commits. The detail endpoint combines that cached metadata with a scalar `available_units` query from MySQL, avoiding a redundant full-row read while satisfying the real-time availability requirement. Redis cache errors are swallowed and fall back to MySQL; it has no role in admission, locking, or inventory accounting.
 
 ### RabbitMQ and the outbox
 
-Each committed hold state change writes an `outbox_events` row in the same transaction. A background publisher sends unpublished events to the durable `drop.events` topic exchange and marks an event published only after a RabbitMQ publisher confirmation. Events are at-least-once: consumers must de-duplicate by the supplied `eventId`. RabbitMQ outage delays delivery but never blocks or reverses valid reservations.
+Each committed hold state change writes an `outbox_events` row in the same transaction. Publisher replicas claim different batches with short database leases and `SKIP LOCKED`, send the entire batch without serial confirmation waits, and bulk-mark acknowledged rows only after RabbitMQ publisher confirmations. A crashed publisher leaves rows eligible after the lease expires; rejected and timed-out sends use a short retry delay to avoid a hot loop during a broker outage. Events are at-least-once: consumers must de-duplicate by the supplied `eventId`. RabbitMQ outage delays delivery but never blocks or reverses valid reservations.
 
-Routing keys are `hold.created`, `hold.confirmed`, `hold.cancelled`, and `hold.expired`. The included durable `drop.events.audit` queue binds `hold.#` so the demo exposes the topology immediately.
+Routing keys are `hold.created`, `hold.confirmed`, `hold.cancelled`, and `hold.expired`. The optional durable `drop.events.audit` queue binds all events when `APP_OUTBOX_AUDIT_QUEUE_ENABLED=true`; it is disabled by default because an unconsumed durable queue grows without bound under load.
 
 ## Configuration
 
@@ -137,6 +137,12 @@ All connection details are environment configurable:
 | `SPRING_DATASOURCE_URL` | `jdbc:mysql://localhost:3306/limited_drop` |
 | `SPRING_DATA_REDIS_HOST` | `localhost` |
 | `SPRING_RABBITMQ_HOST` | `localhost` |
+| `APP_OUTBOX_BATCH_SIZE` | `1000` |
+| `APP_OUTBOX_PUBLISH_DELAY` | `PT0.25S` |
+| `APP_OUTBOX_CONFIRM_TIMEOUT` | `PT5S` |
+| `APP_OUTBOX_CLAIM_DURATION` | `PT30S` |
+| `APP_OUTBOX_RETRY_DELAY` | `PT5S` |
+| `APP_OUTBOX_AUDIT_QUEUE_ENABLED` | `false` |
 | `APP_SECURITY_ISSUER_URI` | none |
 | `APP_SECURITY_JWK_SET_URI` | none |
 | `APP_SECURITY_EXPECTED_ISSUER` | required with direct JWKS |
@@ -158,7 +164,7 @@ No test needs MySQL, Redis, or RabbitMQ. Mockito tests cover service state trans
 ## Trade-offs and next work
 
 - MySQL availability is intentionally strongly consistent. At very high write contention, a single popular drop becomes a hot row. This is the correct baseline; the next scaling step would be a carefully proven allocation/sharding strategy, not a cache-based counter.
-- The worker currently discovers candidates before locking one at a time. It is safe across replicas but can repeat work. A MySQL `FOR UPDATE SKIP LOCKED` claim query would reduce repeated scans when profiling proves it worthwhile.
+- Outbox publishers claim configurable batches with expiring leases, allowing replicas to divide work without holding database locks during broker I/O. Timeouts can still produce duplicates when a late confirmation arrives after a lease is released, which is why consumers must de-duplicate by event ID.
 - Outbox delivery is at-least-once. Exactly-once delivery is not realistic across a database and broker without consumer idempotency; event IDs make consumer deduplication practical.
 - Inventory display is a current MySQL read. This favors correctness and transparency over catalog-read throughput. A separately labeled, short-lived availability projection could be added for read-heavy browsing, but it must never decide admissions.
 - Production would add authorization scopes, request tracing propagated into events, rate limiting at the edge, metrics/alerts for expired-outbox age and inventory anomalies, and MySQL/RabbitMQ integration smoke tests in CI.

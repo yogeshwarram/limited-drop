@@ -27,12 +27,27 @@ public class ReservationProperties {
         public void setExpiryBatchSize(int expiryBatchSize) { this.expiryBatchSize = expiryBatchSize; }
     }
     public static class Outbox {
-        private Duration publishDelay = Duration.ofSeconds(2);
+        private Duration publishDelay = Duration.ofMillis(250);
+        private Duration confirmTimeout = Duration.ofSeconds(5);
+        private Duration claimDuration = Duration.ofSeconds(30);
+        private Duration retryDelay = Duration.ofSeconds(5);
+        private int batchSize = 1000;
         private String exchange = "drop.events";
+        private boolean auditQueueEnabled;
         public Duration getPublishDelay() { return publishDelay; }
         public void setPublishDelay(Duration publishDelay) { this.publishDelay = publishDelay; }
+        public Duration getConfirmTimeout() { return confirmTimeout; }
+        public void setConfirmTimeout(Duration confirmTimeout) { this.confirmTimeout = confirmTimeout; }
+        public Duration getClaimDuration() { return claimDuration; }
+        public void setClaimDuration(Duration claimDuration) { this.claimDuration = claimDuration; }
+        public Duration getRetryDelay() { return retryDelay; }
+        public void setRetryDelay(Duration retryDelay) { this.retryDelay = retryDelay; }
+        public int getBatchSize() { return batchSize; }
+        public void setBatchSize(int batchSize) { this.batchSize = batchSize; }
         public String getExchange() { return exchange; }
         public void setExchange(String exchange) { this.exchange = exchange; }
+        public boolean isAuditQueueEnabled() { return auditQueueEnabled; }
+        public void setAuditQueueEnabled(boolean auditQueueEnabled) { this.auditQueueEnabled = auditQueueEnabled; }
     }
     public static class Seed {
         private boolean enabled = true;

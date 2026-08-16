@@ -25,26 +25,28 @@ class DropQueryServiceTest {
 
     @Test
     void getCombinesCachedMetadataWithLiveInventory() {
-        Drop live = new Drop("drop-1", "Current title", 10, OPEN, 120, OPEN);
-        when(repository.findById("drop-1")).thenReturn(Optional.of(live));
+        when(repository.findAvailableUnitsById("drop-1")).thenReturn(Optional.of(7));
         when(metadataCache.get("drop-1")).thenReturn(new DropMetadata("drop-1", "Original title", 10, OPEN, 120));
 
         DropResponse result = new DropQueryService(repository, metadataCache).get("drop-1");
 
         assertThat(result.title()).isEqualTo("Original title");
         assertThat(result.totalUnits()).isEqualTo(10);
-        assertThat(result.availableUnits()).isEqualTo(10);
+        assertThat(result.availableUnits()).isEqualTo(7);
         verify(metadataCache).get("drop-1");
+        verify(repository).findAvailableUnitsById("drop-1");
+        verify(repository, never()).findById(anyString());
     }
 
     @Test
-    void getFailsBeforeReadingMetadataForUnknownDrop() {
-        when(repository.findById("missing")).thenReturn(Optional.empty());
+    void getFailsWhenLiveAvailabilityIsMissingAfterMetadataLookup() {
+        when(metadataCache.get("missing")).thenReturn(new DropMetadata("missing", "Stale", 10, OPEN, null));
+        when(repository.findAvailableUnitsById("missing")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> new DropQueryService(repository, metadataCache).get("missing"))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("Drop not found");
-        verifyNoInteractions(metadataCache);
+        verify(metadataCache).get("missing");
     }
 
     @Test
@@ -63,10 +65,9 @@ class DropQueryServiceTest {
 
     @Test
     void getReturnsLiveHoldingsAfterMetadataCacheLookup() {
-        Drop live = new Drop("drop-1", "Drop", 10, OPEN, null, OPEN);
-        when(repository.findById("drop-1")).thenReturn(Optional.of(live));
+        when(repository.findAvailableUnitsById("drop-1")).thenReturn(Optional.of(4));
         when(metadataCache.get("drop-1")).thenReturn(new DropMetadata("drop-1", "Drop", 10, OPEN, null));
 
-        assertThat(new DropQueryService(repository, metadataCache).get("drop-1").availableUnits()).isEqualTo(10);
+        assertThat(new DropQueryService(repository, metadataCache).get("drop-1").availableUnits()).isEqualTo(4);
     }
 }

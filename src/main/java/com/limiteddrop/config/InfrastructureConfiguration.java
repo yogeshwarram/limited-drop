@@ -12,6 +12,7 @@ import org.springframework.cache.interceptor.KeyGenerator;
 import org.springframework.cache.interceptor.SimpleCacheErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
@@ -59,8 +60,10 @@ public class InfrastructureConfiguration implements CachingConfigurer {
     @Bean
     TopicExchange dropEventsExchange(ReservationProperties properties) { return new TopicExchange(properties.getOutbox().getExchange(), true, false); }
     @Bean
+    @ConditionalOnProperty(name = "app.outbox.audit-queue-enabled", havingValue = "true")
     Queue auditQueue() { return new Queue("drop.events.audit", true); }
     @Bean
+    @ConditionalOnProperty(name = "app.outbox.audit-queue-enabled", havingValue = "true")
     Binding auditBinding(Queue auditQueue, TopicExchange dropEventsExchange) { return BindingBuilder.bind(auditQueue).to(dropEventsExchange).with("#"); }
 
     private ThreadPoolTaskScheduler taskScheduler(String threadNamePrefix) {

@@ -42,8 +42,13 @@ app:
     expiry-scan-delay: PT5S
     expiry-batch-size: 100
   outbox:
-    publish-delay: PT2S
+    publish-delay: PT0.25S
+    confirm-timeout: PT5S
+    claim-duration: PT30S
+    retry-delay: PT5S
+    batch-size: 1000
     exchange: drop.events
+    audit-queue-enabled: ${APP_OUTBOX_AUDIT_QUEUE_ENABLED:false}
   seed:
     enabled: true
   security:

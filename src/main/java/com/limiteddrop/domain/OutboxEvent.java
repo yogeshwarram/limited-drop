@@ -12,6 +12,8 @@ public class OutboxEvent {
     @Column(nullable = false, columnDefinition = "json") private String payload;
     @Column(name = "occurred_at", nullable = false) private Instant occurredAt;
     @Column(name = "published_at") private Instant publishedAt;
+    @Column(name = "claim_owner") private String claimOwner;
+    @Column(name = "claimed_until") private Instant claimedUntil;
     @Column(nullable = false) private int attempts;
     protected OutboxEvent() { }
     public OutboxEvent(String id, String aggregateId, String eventType, String payload, Instant occurredAt) {
@@ -25,4 +27,6 @@ public class OutboxEvent {
     public String getPayload() { return payload; }
     public Instant getOccurredAt() { return occurredAt; }
     public Instant getPublishedAt() { return publishedAt; }
+    public String getClaimOwner() { return claimOwner; }
+    public Instant getClaimedUntil() { return claimedUntil; }
 }

@@ -23,8 +23,10 @@ class DropRepositoryBehaviorTest {
         drops.saveAndFlush(new Drop(id, "Drop", 10, now.minusSeconds(1), null, now));
 
         assertThat(drops.reserveIfAvailable(id, 4)).isEqualTo(1);
+        assertThat(drops.findAvailableUnitsById(id)).contains(6);
         assertThat(drops.findById(id).orElseThrow().getAvailableUnits()).isEqualTo(6);
         assertThat(drops.returnUnits(id, 4)).isEqualTo(1);
+        assertThat(drops.findAvailableUnitsById(id)).contains(10);
         assertThat(drops.findById(id).orElseThrow().getAvailableUnits()).isEqualTo(10);
     }
 

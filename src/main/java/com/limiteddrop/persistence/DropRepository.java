@@ -10,6 +10,9 @@ import org.springframework.data.jpa.repository.Lock;
 import java.util.Optional;
 
 public interface DropRepository extends JpaRepository<Drop, String> {
+    @Query("select d.availableUnits from Drop d where d.id = :dropId")
+    Optional<Integer> findAvailableUnitsById(@Param("dropId") String dropId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from Drop d where d.id = :dropId")
     Optional<Drop> findByIdForUpdate(@Param("dropId") String dropId);
